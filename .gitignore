@@ -1,0 +1,6 @@
+__pycache__
+.ipynb_checkpoints
+temp
+data_handler.pyc
+*.out
+notebook.ipynb

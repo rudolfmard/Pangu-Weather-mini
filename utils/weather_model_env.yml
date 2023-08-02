@@ -1,0 +1,16 @@
+name: weather_model_env
+channels:
+  - conda-forge
+  - defaults
+  - pytorch
+dependencies:
+  - python=3.8
+  - pip
+  - pip:
+    - cdsapi
+    - timm
+  - numpy
+  - pandas
+  - pygrib
+  - pytorch
+  - cudatoolkit=10.2
