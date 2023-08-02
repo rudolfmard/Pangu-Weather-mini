@@ -100,9 +100,9 @@ def normalize_data(data):
     return (data-mean)/sd
 
 class WeatherDataset(Dataset):
-    def __init__(self, lead_time):
-        air_data = normalize_data(torch.load("../weather_data/air_test.pt"))
-        surface_data = normalize_data(torch.load("../weather_data/surface_test.pt"))
+    def __init__(self, lead_time, air_data_path="../weather_data/air_test.pt", surface_data_path="../weather_data/surface_test.pt"):
+        air_data = normalize_data(torch.load(air_data_path))
+        surface_data = normalize_data(torch.load(surface_data_path))
         self.x_air = air_data[:-lead_time]
         self.x_surface = surface_data[:-lead_time]
         self.y_air = air_data[lead_time:]

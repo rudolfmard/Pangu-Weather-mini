@@ -7,6 +7,7 @@ import data_handler
 
 c = cdsapi.Client()
 
+# Retrieve upper-air variable data:
 c.retrieve(
     'reanalysis-era5-pressure-levels',
     {'product_type': 'reanalysis','format': 'grib','variable': ['geopotential', 'specific_humidity', 'temperature','u_component_of_wind', 'v_component_of_wind',],
@@ -23,9 +24,11 @@ c.retrieve(
     '../../weather_data/air_test.grib')
 print("Air data downloaded.")
 
+# Convert upper-air variable data into tensor:
 data_handler.air_grib_to_tensor("air_test.grib", data_folder_path="../../weather_data/")
 print("Air data parsed.")
 
+# Retrieve surface variable data:
 c.retrieve(
     'reanalysis-era5-single-levels',
     {'product_type': 'reanalysis','format': 'grib',
@@ -42,5 +45,6 @@ c.retrieve(
     '../../weather_data/surface_test.grib')
 print("Surface data downloaded.")
 
+# Convert surface variable data into tensor:
 data_handler.surface_grib_to_tensor("surface_test.grib", data_folder_path="../../weather_data/")
 print("Surface data parsed.")
