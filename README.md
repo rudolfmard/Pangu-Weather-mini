@@ -1,6 +1,6 @@
 # Pangu-Weather-mini
 
-This repository implements the Pangu-Weather model along with data and training tools to be used in [Aalto Triton computing cluster](https://scicomp.aalto.fi/triton/).
+This repository implements the [Pangu-Weather model](https://www.nature.com/articles/s41586-023-06185-3) along with data and training tools to be used with [Aalto Triton computing cluster](https://scicomp.aalto.fi/triton/).
 The four main files of this repository are the following:
 - *model.py*
   
@@ -27,4 +27,16 @@ After you have downloaded the data (see the next section) and configured the hyp
 Any prints and error messages are going to be written in a `.out` file by the Slurm workload manager, and should appear in the same directory after the job finishes.
 
 ## Downloading data
-The data is downloaded from [Climate Data Store (CDS)](https://cds.climate.copernicus.eu/#!/home) by the Copernicus Climate Change Service. In order to download data from CDS, you will need to create an account and obtain the API key ([instructions](https://cds.climate.copernicus.eu/api-how-to)). The `utils` folder contains a script named `load_data_from_CDS.py` which uses the CDS API to download the data. The data comes in as `.grib` files, which needs to be parsed into suitable format (pytorch tensors) in order to be used with the model. The `load_data_from_CDS.py` calls functions from the `data_handler.py` file to perform the conversion, which saves the tensors into the same directory where the `.grib` files are located.
+The data is downloaded from [Climate Data Store (CDS)](https://cds.climate.copernicus.eu/#!/home) by the Copernicus Climate Change Service. In order to download data from CDS, you will need to create an account and obtain the API key ([instructions](https://cds.climate.copernicus.eu/api-how-to)). The `utils` folder contains a script named `load_data_from_CDS.py` which uses the CDS API to download the data. The data comes in as `.grib` files, which needs to be parsed into suitable format (pytorch tensors) in order to be used with the model. The `load_data_from_CDS.py` calls functions from the `data_handler.py` file to perform the file conversion and saves the tensors into the same directory where the `.grib` files are located.
+
+As described in the Pangu-Weather paper, the data consists of upper-air variables and surface variables.
+The upper-air variables can be found [here](https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-pressure-levels?tab=form). Behind the link you will need to select the following:
+- Product type: *reanalysis*
+- Variable: *Geopotential*, *Specific humidity*, *Temperature*, *U-component of wind* and *V-component of wind*
+- Pressure level: *50*, *100*, *150*, *200*, *250*, *300*, *400*, *500*, *600*, *700*, *850*, *925* and *1000*
+
+The surface variables can be found [here](https://cds.climate.copernicus.eu/cdsapp#!/dataset/reanalysis-era5-single-levels?tab=form). Behind the link you will need to select the following:
+- Product type: *reanalysis*
+- Variable -> Popular: *2m temperature*, *10m u-component of wind*, *10m v-component of wind* and *Mean sea level pressure*
+
+After selecting the variables, proceed by selecting each hour from the time frame of interest, as well as *whole available region* for the *geographical area*. Select `GRIB` as the file format and click on *Show API request*. From there, you can copy and paste the `c.retrieve(...)` code into the `load_data_from_CDS.py` file. Make sure you pass `your/path/of/choice/file_name.grib` as the last argument into the `c.retrieve()` function, and pass that same path into the grib file parser function as well.
