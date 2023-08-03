@@ -40,3 +40,8 @@ The surface variables can be found [here](https://cds.climate.copernicus.eu/cdsa
 - Variable -> Popular: *2m temperature*, *10m u-component of wind*, *10m v-component of wind* and *Mean sea level pressure*
 
 After selecting the variables, proceed by selecting each hour from the time frame of interest, as well as *whole available region* for the *geographical area*. Select `GRIB` as the file format and click on *Show API request*. From there, you can copy and paste the `c.retrieve(...)` code into the `load_data_from_CDS.py` file. Make sure you pass `your/path/of/choice/file_name.grib` as the last argument into the `c.retrieve()` function, and pass that same path into the grib file parser function as well.
+
+***
+### Note
+Some parts of the code refer to *single_gpu* or *multi_gpu* execution modes. The *multi_gpu* execution mode has not yet been fully implemented, but running in *single_gpu* mode works nonetheless. I recommend you to just ignore all parts of the code referring to the *multi_gpu* execution mode.
+***
