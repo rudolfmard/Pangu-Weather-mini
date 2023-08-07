@@ -4,7 +4,7 @@ from torch.utils.data.distributed import DistributedSampler
 import pygrib
 import numpy as np
 
-def air_grib_to_tensor(file_name, data_folder_path="../weather_data/"):
+def air_grib_to_tensor(file_name, data_folder_path):
     # Open the file using pygrib:
     with pygrib.open(data_folder_path + file_name) as grib:
         # Create an empty dictionary to hold data:
@@ -33,7 +33,7 @@ def air_grib_to_tensor(file_name, data_folder_path="../weather_data/"):
     # Yields an array of shape: (hours, levels, variables, 721, 1440)
     data_array = np.array([[[data[t][l][v] for v in variables] for l in levels] for t in times], dtype=np.float32)
     del data
-
+    
     # Convert to tensor and permute the dimensions into desired order (as in the paper):
     #   (hours, levels, variables, 721, 1440) -> (hours, levels, 1440, 721, variables)
     data_tensor = torch.from_numpy(data_array)
@@ -42,7 +42,7 @@ def air_grib_to_tensor(file_name, data_folder_path="../weather_data/"):
     # Save the tensor:
     torch.save(data_tensor, data_folder_path + file_name.split(".")[0] + ".pt")
 
-def surface_grib_to_tensor(file_name, data_folder_path="../weather_data/"):
+def surface_grib_to_tensor(file_name, data_folder_path):
     # Open the file using pygrib:
     with pygrib.open(data_folder_path + file_name) as grib:
         # Create an empty dictionary to hold data:
@@ -100,7 +100,13 @@ def normalize_data(data):
     return (data-mean)/sd
 
 class WeatherDataset(Dataset):
-    def __init__(self, lead_time, air_data_path="../weather_data/air_test.pt", surface_data_path="../weather_data/surface_test.pt"):
+    def __init__(self, lead_time, air_data_path, surface_data_path):
+        """
+        Parameters:
+            lead_time (int):            Defines the time difference between the input and target in hours.
+            air_data_path (str):        Defines the path to data file containing the upper-air variables.
+            surface_data_path (str):    Defines the path to data file containing the surface variables.
+        """
         air_data = normalize_data(torch.load(air_data_path))
         surface_data = normalize_data(torch.load(surface_data_path))
         self.x_air = air_data[:-lead_time]

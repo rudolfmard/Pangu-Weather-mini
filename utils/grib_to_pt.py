@@ -6,5 +6,7 @@ parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(parent_dir)
 import data_handler
 
-data_handler.air_grib_to_tensor("air_2010_01.grib", data_folder_path="../../weather_data/")
-data_handler.surface_grib_to_tensor("surface_2010_01.grib", data_folder_path="../../weather_data/")
+# Run this script to parse already downloaded .grib files:
+
+data_handler.air_grib_to_tensor(file_name="air_test.grib", data_folder_path="../../weather_data/")
+data_handler.surface_grib_to_tensor(file_name="surface_test.grib", data_folder_path="../../weather_data/")

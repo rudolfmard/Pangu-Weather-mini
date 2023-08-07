@@ -4,6 +4,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import numpy as np
 import os
 import time
+import json
 
 class Trainer:
     def __init__(self, model, train_data, validation_data, loss_fn, optimizer, max_epochs, save_every, execution_mode, checkpoint_path):
@@ -55,6 +56,12 @@ class Trainer:
         self.epochs_run = checkpoint["EPOCHS_RUN"]+1
         self.training_loss = checkpoint["TRAINING_LOSS"]
         self.validation_loss = checkpoint["VALIDATION_LOSS"]
+        # If max epochs has been increased since last checkpoint, grow the size of loss arrays:
+        if self.max_epochs > self.training_loss.shape[0]:
+            self.training_loss = torch.zeros(self.max_epochs)
+            self.training_loss[:checkpoint["TRAINING_LOSS"].shape[0]] = checkpoint["TRAINING_LOSS"]
+            self.validation_loss = torch.zeros(self.max_epochs)
+            self.validation_loss[:checkpoint["VALIDATION_LOSS"].shape[0]] = checkpoint["VALIDATION_LOSS"]
         print(f"Loaded a checkpoint created at Epoch {self.epochs_run-1}.")
         print(f"Resuming training from Epoch {self.epochs_run}")
 
@@ -91,7 +98,10 @@ class Trainer:
     @torch.no_grad()
     def _evaluate_model(self, epoch):
         self.model.eval()
+        # Initialize array for tracking validation loss over batches:
         batch_losses = np.empty(len(self.validation_data))
+
+        # Loop over batches of validation data:
         for batch_i, (data, targets) in enumerate(self.validation_data):
             # Extract air and surface data and move to GPU:
             data_air, data_surface = data
@@ -103,11 +113,15 @@ class Trainer:
             targets_air = targets_air.to(self.local_rank)
             targets_surface = targets_surface.to(self.local_rank)
 
+            # Make prediction:
             output = self.model((data_air, data_surface))
+
+            # Calculate validation loss:
             loss = self.loss_fn(output[0], targets_air) + self.loss_fn(output[1], targets_surface)
             batch_losses[batch_i] = loss.item()
-        eval_loss = torch.mean(torch.from_numpy(batch_losses))
-        self.validation_loss[epoch] = eval_loss
+
+        # Calculate mean of validation loss over batches: 
+        self.validation_loss[epoch] = torch.mean(torch.from_numpy(batch_losses))
         self.model.train()
 
     def _run_batch(self, data, targets):
@@ -121,7 +135,7 @@ class Trainer:
         targets_air = targets_air.to(self.local_rank)
         targets_surface = targets_surface.to(self.local_rank)
         
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad()  # TODO: Gradient accumulation?
         # Forward pass:
         with torch.cuda.amp.autocast():
             output = self.model((data_air, data_surface))
@@ -129,7 +143,7 @@ class Trainer:
         
         # Backward pass:
         self.scaler.scale(loss).backward()
-        #torch.nn.utils.clip_grad_norm(self.model.parameters(), max_norm=1)     # Gradient clipping?
+        #torch.nn.utils.clip_grad_norm(self.model.parameters(), max_norm=1)     # TODO: Gradient clipping?
         self.scaler.step(self.optimizer)
         self.scaler.update()
         return loss.item()
@@ -137,15 +151,21 @@ class Trainer:
     def _run_epoch(self, epoch):
         start_time = time.time()
         batch_size = len(next(iter(self.train_data))[0])
-        # Initialize np array to collect batch losses:
+
+        # Initialize array for tracking training loss over batches:
         batch_losses = np.empty(len(self.train_data))
-        # Loop over batches:
+
+        # Loop over batches of training data:
         for batch_i, (data, targets) in enumerate(self.train_data):
+            # Run batch and store batch loss:
             batch_loss = self._run_batch(data, targets)
             batch_losses[batch_i] = batch_loss
             print(f"Epoch {epoch} | Iteration {batch_i} | Batch Loss {batch_loss}")
-        print(f"Epoch {epoch} took {time.time() - start_time} seconds with batch size {batch_size}")
+        
+        # Calculate mean of training loss over batches: 
         epoch_loss = torch.mean(torch.from_numpy(batch_losses))
+
+        print(f"Epoch {epoch} took {time.time() - start_time} seconds with batch size {batch_size}")
         if self.execution_mode == "multi_gpu":
             # With multiple GPUs, communicate the loss from each process to the rank 0 process:
             dist.reduce(epoch_loss, dst=0)
@@ -156,12 +176,68 @@ class Trainer:
         print("Cuda available: ", torch.cuda.is_available())
         for epoch in range(self.epochs_run, self.max_epochs):
             self._run_epoch(epoch)
-            # Save checkpoint after every Nth epoch:
-            if self.local_rank == 0 and epoch % self.save_every == 0:
-                self._save_checkpoint(epoch)
             # Evaluate the model after every epoch:
             if self.global_rank == 0 and self.validation_data != None:
                 self._evaluate_model(epoch)
+            # Save checkpoint after every Nth epoch:
+            if self.local_rank == 0 and epoch % self.save_every == 0:
+                self._save_checkpoint(epoch)
         if self.global_rank == 0:
             self._save_model_parameters()
             self._save_training_metrics()
+        print("Finished training.")
+
+
+def RMSE(prediction, target, save):
+    """
+    Calculates the Root Mean Squared Error between prediction and target tensors.
+    The tensors are of shape (B, 13, 1440, 721, 5) for upper-air variables and
+    (B, 1440, 721, 4) for surface variables. B is for batch size, and if larger than one,
+    the function calculates average of the RMSE values over the batch dimension. 
+
+    Parameters:
+        prediction (tuple(tensor)):     Predicted values of the variables as a tuple of tensors (upper-air variables, surface variables) at single time point.
+        target (tuple(tensor)):         Target values of the variables as a tuple of tensors (upper-air variables, surface variables) at a single time point.
+        save (bool):                    If True, saves a json file of the dictionary containing RMSE values.
+    Returns:
+        RMSE_values (dict):             Dictionary holding RMSE values of each variable on each pressure level.
+    """
+    air_prediction, surface_prediction = prediction
+    air_target, surface_target = target
+    assert air_prediction.shape == air_target.shape, f"Air predictions ({air_prediction.shape}) and targets ({air_target.shape}) have different shapes."
+    assert surface_prediction.shape == surface_target.shape, f"Surface predictions ({surface_prediction.shape}) and targets ({surface_target.shape}) have different shapes."
+
+    # Number of latitude and longitude coordinates: 
+    N_lat = air_prediction.shape[3]
+    N_lon = air_prediction.shape[2]
+
+    # Calculate latitude weights:
+    weights = np.deg2rad(np.arange(-90, 90.25, 0.25))
+    weights = torch.from_numpy(N_lat*np.cos(weights)/np.sum(np.cos(weights))).view(1, 1, 721).to(air_prediction.device)
+
+    # Specify key names:
+    air_keys = ["Geopotential", "Specific humidity", "Temperature", "U-wind", "V-wind"]
+    pressure_level_keys = ["50", "100", "150", "200", "250", "300", "400", "500", "600", "700", "850", "925", "1000"]
+    surface_keys = ["2m temperature", "10m U-wind", "10m V-wind", "MSLP"]
+
+    # Initialize dictionary to hold RMSE values:
+    RMSE_values = {}
+
+    # Loop over air-variables:
+    for i in range(air_prediction.shape[4]):
+        RMSE_values[air_keys[i]] = {}
+        # Loop over pressure levels:
+        for j in range(air_prediction.shape[1]):
+            rmse = torch.sqrt(torch.sum(torch.pow(air_prediction[:,j,:,:,i]-air_target[:,j,:,:,i], 2)*weights, dim=(1,2))/(N_lat*N_lon))
+            RMSE_values[air_keys[i]][pressure_level_keys[j]] = torch.mean(rmse).item()
+    
+    # Loop over surface variables:
+    for k in range(surface_prediction.shape[3]):
+        rmse = torch.sqrt(torch.sum(torch.pow(surface_prediction[:,:,:,k]-surface_target[:,:,:,k], 2)*weights, dim=(1,2))/(N_lat*N_lon))
+        RMSE_values[surface_keys[k]] = torch.mean(rmse).item()
+
+    if save:
+        with open('RMSE.json', 'w') as file:
+            json.dump(RMSE_values, file, indent=4)
+
+    return RMSE_values

@@ -1,4 +1,4 @@
-from trainer import Trainer
+from trainer import Trainer, RMSE
 from model import WeatherModel
 import data_handler as dh
 import torch
@@ -25,8 +25,8 @@ def main(execution_mode):
         batch_size (int):        Batch size of the training data, 1 in original Pangu-Weather.
     """
     learning_rate = 5e-4
-    max_epochs = 2
-    save_every = 20
+    max_epochs = 20
+    save_every = 2
     batch_size = 1
 
     """
@@ -42,14 +42,15 @@ def main(execution_mode):
     D = 2
 
     # Create a model object:
-    model = WeatherModel(C, depth, n_heads, D, batch_size)
+    model = WeatherModel(C, depth, n_heads, D, batch_size, log_GPU_mem=True)
 
     # Create dataloader objects for training and validation data:
-    train_dataset = dh.WeatherDataset(lead_time=1)
+    train_dataset = dh.WeatherDataset(lead_time=1, air_data_path="../weather_data/air_test.pt", surface_data_path="../weather_data/surface_test.pt")
     train_dataloader = dh.prepare_dataloader(train_dataset, batch_size, execution_mode)
 
     # If validation_dataloader is set to None, no validation is performed between epochs.
-    validation_dataloader = None
+    validation_dataset = dh.WeatherDataset(lead_time=1, air_data_path="../weather_data/air_test_validation.pt", surface_data_path="../weather_data/surface_test_validation.pt")
+    validation_dataloader = dh.prepare_dataloader(validation_dataset, batch_size, execution_mode)
 
     # Create loss loss function and optimizer objects:
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=3e-6)
@@ -59,6 +60,25 @@ def main(execution_mode):
     trainer = Trainer(model, train_dataloader, validation_dataloader, loss_fn, optimizer, max_epochs, save_every, execution_mode, checkpoint_path)
     trainer.train()
 
+    # Calculate RMSE on a batch of data:
+    calculate_RMSE = False
+    if calculate_RMSE:
+        with torch.no_grad():
+            device = next(model.parameters()).device
+            model.eval()
+            data, targets = next(iter(validation_dataloader))
+
+            data_air, data_surface = data
+            data_air = data_air.to(device)
+            data_surface = data_surface.to(device)
+
+            targets_air, targets_surface = targets
+            targets_air = targets_air.to(device)
+            targets_surface = targets_surface.to(device)
+
+            output = model((data_air, data_surface))
+            rmse_values = RMSE(output, (targets_air, targets_surface), save=True)
+
     if execution_mode == "multi_gpu":
         destroy_process_group()
 
@@ -67,4 +87,4 @@ if __name__ == "__main__":
     import sys
     # Read execution mode given as a commandline argument (single_gpu or multi_gpu):
     execution_mode = sys.argv[1]
-    main(config, execution_mode)
+    main(execution_mode)
