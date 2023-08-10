@@ -4,3 +4,5 @@ temp
 data_handler.pyc
 *.out
 notebook.ipynb
+*.pt
+*.json

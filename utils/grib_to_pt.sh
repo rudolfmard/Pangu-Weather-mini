@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#SBATCH --time=02:00:00
-#SBATCH --mem=300G
+#SBATCH --time=05:00:00
+#SBATCH --mem=100G
 #SBATCH --job-name=grib_to_pt
 #SBATCH --output=grib_to_pt.out
 

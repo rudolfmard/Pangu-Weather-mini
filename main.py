@@ -1,4 +1,4 @@
-from trainer import Trainer, RMSE
+from trainer import Trainer
 from model import WeatherModel
 import data_handler as dh
 import torch
@@ -25,8 +25,8 @@ def main(execution_mode):
         batch_size (int):        Batch size of the training data, 1 in original Pangu-Weather.
     """
     learning_rate = 5e-4
-    max_epochs = 20
-    save_every = 2
+    max_epochs = 30
+    save_every = 3
     batch_size = 1
 
     """
@@ -58,16 +58,19 @@ def main(execution_mode):
 
     # Create a trainer object and train the model:
     trainer = Trainer(model, train_dataloader, validation_dataloader, loss_fn, optimizer, max_epochs, save_every, execution_mode, checkpoint_path)
-    trainer.train()
+    #trainer.train()
 
     # Calculate RMSE on a batch of data:
-    calculate_RMSE = False
+    calculate_RMSE = True
     if calculate_RMSE:
-        with torch.no_grad():
+        with torch.no_grad(): 
             device = next(model.parameters()).device
             model.eval()
+
+            # Fetch a batch from validation dataloader:
             data, targets = next(iter(validation_dataloader))
 
+            # Move the data to the same device as the model:
             data_air, data_surface = data
             data_air = data_air.to(device)
             data_surface = data_surface.to(device)
@@ -76,8 +79,12 @@ def main(execution_mode):
             targets_air = targets_air.to(device)
             targets_surface = targets_surface.to(device)
 
-            output = model((data_air, data_surface))
-            rmse_values = RMSE(output, (targets_air, targets_surface), save=True)
+            # Make prediction with the model:
+            output_air, output_surface = model((data_air, data_surface))
+
+            # Calculate RMSE of the predictions on unnormalized data:
+            rmse_values = dh.RMSE((dh.unnormalize_data(output_air), dh.unnormalize_data(output_surface)), 
+                                (dh.unnormalize_data(targets_air), dh.unnormalize_data(targets_surface)), save=True)
 
     if execution_mode == "multi_gpu":
         destroy_process_group()

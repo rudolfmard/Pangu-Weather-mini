@@ -4,7 +4,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import numpy as np
 import os
 import time
-import json
 
 class Trainer:
     def __init__(self, model, train_data, validation_data, loss_fn, optimizer, max_epochs, save_every, execution_mode, checkpoint_path):
@@ -183,61 +182,7 @@ class Trainer:
             if self.local_rank == 0 and epoch % self.save_every == 0:
                 self._save_checkpoint(epoch)
         if self.global_rank == 0:
+            self._save_checkpoint(epoch)
             self._save_model_parameters()
             self._save_training_metrics()
         print("Finished training.")
-
-
-def RMSE(prediction, target, save):
-    """
-    Calculates the Root Mean Squared Error between prediction and target tensors.
-    The tensors are of shape (B, 13, 1440, 721, 5) for upper-air variables and
-    (B, 1440, 721, 4) for surface variables. B is for batch size, and if larger than one,
-    the function calculates average of the RMSE values over the batch dimension. 
-
-    Parameters:
-        prediction (tuple(tensor)):     Predicted values of the variables as a tuple of tensors (upper-air variables, surface variables) at single time point.
-        target (tuple(tensor)):         Target values of the variables as a tuple of tensors (upper-air variables, surface variables) at a single time point.
-        save (bool):                    If True, saves a json file of the dictionary containing RMSE values.
-    Returns:
-        RMSE_values (dict):             Dictionary holding RMSE values of each variable on each pressure level.
-    """
-    air_prediction, surface_prediction = prediction
-    air_target, surface_target = target
-    assert air_prediction.shape == air_target.shape, f"Air predictions ({air_prediction.shape}) and targets ({air_target.shape}) have different shapes."
-    assert surface_prediction.shape == surface_target.shape, f"Surface predictions ({surface_prediction.shape}) and targets ({surface_target.shape}) have different shapes."
-
-    # Number of latitude and longitude coordinates: 
-    N_lat = air_prediction.shape[3]
-    N_lon = air_prediction.shape[2]
-
-    # Calculate latitude weights:
-    weights = np.deg2rad(np.arange(-90, 90.25, 0.25))
-    weights = torch.from_numpy(N_lat*np.cos(weights)/np.sum(np.cos(weights))).view(1, 1, 721).to(air_prediction.device)
-
-    # Specify key names:
-    air_keys = ["Geopotential", "Specific humidity", "Temperature", "U-wind", "V-wind"]
-    pressure_level_keys = ["50", "100", "150", "200", "250", "300", "400", "500", "600", "700", "850", "925", "1000"]
-    surface_keys = ["2m temperature", "10m U-wind", "10m V-wind", "MSLP"]
-
-    # Initialize dictionary to hold RMSE values:
-    RMSE_values = {}
-
-    # Loop over air-variables:
-    for i in range(air_prediction.shape[4]):
-        RMSE_values[air_keys[i]] = {}
-        # Loop over pressure levels:
-        for j in range(air_prediction.shape[1]):
-            rmse = torch.sqrt(torch.sum(torch.pow(air_prediction[:,j,:,:,i]-air_target[:,j,:,:,i], 2)*weights, dim=(1,2))/(N_lat*N_lon))
-            RMSE_values[air_keys[i]][pressure_level_keys[j]] = torch.mean(rmse).item()
-    
-    # Loop over surface variables:
-    for k in range(surface_prediction.shape[3]):
-        rmse = torch.sqrt(torch.sum(torch.pow(surface_prediction[:,:,:,k]-surface_target[:,:,:,k], 2)*weights, dim=(1,2))/(N_lat*N_lon))
-        RMSE_values[surface_keys[k]] = torch.mean(rmse).item()
-
-    if save:
-        with open('RMSE.json', 'w') as file:
-            json.dump(RMSE_values, file, indent=4)
-
-    return RMSE_values
