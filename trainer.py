@@ -140,6 +140,11 @@ class Trainer:
             output = self.model((data_air, data_surface))
             loss = self.loss_fn(output[0], targets_air) + self.loss_fn(output[1], targets_surface)
         
+        del data_air
+        del data_surface
+        del targets_air
+        del targets_surface
+
         # Backward pass:
         self.scaler.scale(loss).backward()
         #torch.nn.utils.clip_grad_norm(self.model.parameters(), max_norm=1)     # TODO: Gradient clipping?
@@ -149,7 +154,7 @@ class Trainer:
 
     def _run_epoch(self, epoch):
         start_time = time.time()
-        batch_size = len(next(iter(self.train_data))[0])
+        batch_size = len(next(iter(self.train_data))[0][0])
 
         # Initialize array for tracking training loss over batches:
         batch_losses = np.empty(len(self.train_data))

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from timm.models.layers import DropPath, trunc_normal_
 
 def LoadConstantMask(batch_size):   # TODO: Replace dummy masks with actual data
@@ -24,10 +25,10 @@ class WeatherModel(nn.Module):
         # Four main layers:
         self.layer1 = EarthSpecificLayer(depth=depth[0], dim=C, input_resolution=(8, 360, 181),
                                         heads=n_heads[0], drop_path_ratio_list=drop_path_list[:2], D=D)
-        self.layer2 = EarthSpecificLayer(depth=depth[1], dim=2*C, input_resolution=(8, 180, 91),
-                                        heads=n_heads[1], drop_path_ratio_list=drop_path_list[2:], D=D)
-        self.layer3 = EarthSpecificLayer(depth=depth[2], dim=2*C, input_resolution=(8, 180, 91),
-                                        heads=n_heads[2], drop_path_ratio_list=drop_path_list[2:], D=D)
+        #self.middleLayers = nn.Sequential(
+        self.layer2 = EarthSpecificLayer(depth=depth[1], dim=2*C, input_resolution=(8, 180, 91), heads=n_heads[1], drop_path_ratio_list=drop_path_list[2:], D=D)
+        self.layer3 = EarthSpecificLayer(depth=depth[2], dim=2*C, input_resolution=(8, 180, 91), heads=n_heads[2], drop_path_ratio_list=drop_path_list[2:], D=D)
+        #)
         self.layer4 = EarthSpecificLayer(depth=depth[3], dim=C, input_resolution=(8, 360, 181),
                                         heads=n_heads[3], drop_path_ratio_list=drop_path_list[:2], D=D)
 
@@ -46,21 +47,19 @@ class WeatherModel(nn.Module):
         x = self.input_layer(data[0], data[1])
         
         ###     Encoder     ###
-        x = self.layer1(x)
-        print(f'    After Layer 1 GPU: {torch.cuda.memory_allocated(0) / 1e9} GB | Peak GPU: {torch.cuda.max_memory_allocated(0) / 1e9} GB') if self.log_GPU_mem else None
+        x = checkpoint(self.layer1, x)
         skip = x
         # Downsample the spatial resolution:    (B, 8, 360, 181, C) -> (B, 8, 180, 91, 2C)
         x = self.downsample(x)
-        x = self.layer2(x)
-        print(f'    After Layer 2 GPU: {torch.cuda.memory_allocated(0) / 1e9} GB | Peak GPU: {torch.cuda.max_memory_allocated(0) / 1e9} GB') if self.log_GPU_mem else None
+        x = checkpoint(self.layer2, x)
+
+        #x = checkpoint(self.middleLayers, x)
 
         ###     Decoder     ###
-        x = self.layer3(x)
-        print(f'    After Layer 3 GPU: {torch.cuda.memory_allocated(0) / 1e9} GB | Peak GPU: {torch.cuda.max_memory_allocated(0) / 1e9} GB') if self.log_GPU_mem else None
+        x = checkpoint(self.layer3, x)
         # Restore the spatial resolution:       (B, 8, 180, 91, 2C) -> (B, 8, 360, 181, C)
         x = self.upsample(x)
-        x = self.layer4(x)
-        print(f'    After Layer 4 GPU: {torch.cuda.memory_allocated(0) / 1e9} GB | Peak GPU: {torch.cuda.max_memory_allocated(0) / 1e9} GB') if self.log_GPU_mem else None
+        x = checkpoint(self.layer4, x)
 
         # Concatenate skip connection along last dimension:
         #   (B, 8, 360, 181, C) -> (B, 8, 360, 181, 2C)

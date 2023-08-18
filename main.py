@@ -1,5 +1,6 @@
 from trainer import Trainer
 from model import WeatherModel
+import os
 import data_handler as dh
 import torch
 from torch.distributed import init_process_group, destroy_process_group
@@ -12,6 +13,10 @@ def main(execution_mode):
         init_process_group(backend="nccl")
     else:
         raise ValueError("Invalid execution mode. Valid values are 'single_gpu' or 'multi_gpu'")
+    
+    # This environment variable tells PyTorch CUDA allocator not to split memory blocks larger than certain size.
+    # Mitigates GPU memory fragmentation and allows the training of the full original model to fit onto one GPU.
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = 'max_split_size_mb:1024'
 
     # Path to checkpoint.pt to continue training from that checkpoint,
     # if checkpoint.pt does not exist training starts from scratch.
@@ -25,8 +30,8 @@ def main(execution_mode):
         batch_size (int):        Batch size of the training data, 1 in original Pangu-Weather.
     """
     learning_rate = 5e-4
-    max_epochs = 30
-    save_every = 3
+    max_epochs = 10
+    save_every = 2
     batch_size = 1
 
     """
@@ -36,10 +41,10 @@ def main(execution_mode):
         n_heads (list[int]):    List with length of 4, defines the number of heads in transformer blocks of each 4 EarthSpecificLayers. [6, 12, 12, 6] in original Pangu-Weather.
         D (int):                Dimensionality multiplier of hidden layer in transformer MLP. 4 in original Pangu-Weather.
     """
-    C = 96
-    depth = [1, 3, 3, 1]
+    C = 192
+    depth = [2, 6, 6, 2]
     n_heads = [6, 12, 12, 6]
-    D = 2
+    D = 4
 
     # Create a model object:
     model = WeatherModel(C, depth, n_heads, D, batch_size, log_GPU_mem=True)
@@ -58,7 +63,7 @@ def main(execution_mode):
 
     # Create a trainer object and train the model:
     trainer = Trainer(model, train_dataloader, validation_dataloader, loss_fn, optimizer, max_epochs, save_every, execution_mode, checkpoint_path)
-    #trainer.train()
+    trainer.train()
 
     # Calculate RMSE on a batch of data:
     calculate_RMSE = True

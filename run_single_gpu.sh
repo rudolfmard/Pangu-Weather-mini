@@ -1,6 +1,6 @@
 #!/bin/bash
 
-#SBATCH --time=10:00:00
+#SBATCH --time=03:00:00
 #SBATCH --mem=100G
 #SBATCH --job-name=model_training
 #SBATCH --output=training.out
